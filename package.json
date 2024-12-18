@@ -1,0 +1,17 @@
+{
+  "name": "toggl-chart-project",
+  "version": "1.0.0",
+  "description": "A simple web page that fetches data from Toggl and displays it on a chart.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "axios": "^1.5.0",
+    "chart.js": "^4.3.0",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "moment-timezone": "^0.5.46"
+  }
+}

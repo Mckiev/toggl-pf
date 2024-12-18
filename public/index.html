@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Work Percentile Feedback Dashboard" />
+    <title>Work Percentile Feedback</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment-timezone/0.5.33/moment-timezone-with-data.min.js"></script>
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="styles.css">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>📊</text></svg>">
+</head>
+<body>
+    <main class="dashboard">
+        <header class="dashboard-header">
+            <h1>Work Progress Dashboard</h1>
+            <p class="dashboard-description">Real-time visualization of work efficiency patterns</p>
+        </header>
+        
+        <div class="chart-container">
+            <div class="chart-header">
+                <div id="current-time"></div>
+            </div>
+            <canvas id="myChart"></canvas>
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+    <script>
+        // Update current time
+        function updateTime() {
+            const now = moment().tz('America/Los_Angeles');
+            document.getElementById('current-time').textContent = 
+                now.format('dddd, MMMM D, YYYY - h:mm:ss A [PST]');
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+    </script>
+</body>
+</html>
