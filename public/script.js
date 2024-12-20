@@ -21,7 +21,6 @@ fetch('/api/toggl')
 
       let cumulativeWork = 0;
       const percentages = [];
-      let lastEndTime = null;
 
       const completedEntries = entries
         .filter(entry => entry.stop)
@@ -31,17 +30,9 @@ fetch('/api/toggl')
         })
         .sort((a, b) => moment(a.start).valueOf() - moment(b.start).valueOf());
 
-      // Find first entry of the day (including ongoing entry if it's first)
-      const ongoingEntry = entries.find(entry => !entry.stop);
-      const allEntries = [...completedEntries];
-      if (ongoingEntry) {
-        allEntries.push(ongoingEntry);
-      }
-      
-      // Add initial 0% point at the start of the first session
-      if (allEntries.length > 0) {
-        const firstEntry = allEntries.sort((a, b) => moment(a.start).valueOf() - moment(b.start).valueOf())[0];
-        const firstStart = moment(firstEntry.start).tz(timezone);
+      // Find first entry of the day
+      if (completedEntries.length > 0) {
+        const firstStart = moment(completedEntries[0].start).tz(timezone);
         const firstStartHour = firstStart.hours() + (firstStart.minutes() / 60);
         
         if (firstStartHour >= startHour && firstStartHour <= endHour) {
@@ -59,6 +50,8 @@ fetch('/api/toggl')
         }
       }
 
+      let lastEndTime = null;
+
       completedEntries.forEach(entry => {
         const start = moment(entry.start).tz(timezone);
         const stop = moment(entry.stop).tz(timezone);
@@ -68,27 +61,23 @@ fetch('/api/toggl')
         const duration = effectiveStop.diff(effectiveStart, 'hours', true);
         
         if (duration > 0) {
-          // Add decreased percentage point if there's a gap
           const startHourOfDay = effectiveStart.hours() + (effectiveStart.minutes() / 60);
-          if (startHourOfDay >= startHour && startHourOfDay <= endHour) {
-            if (lastEndTime !== null && effectiveStart.isAfter(lastEndTime)) {
-              const decreasedPercentage = calculatePercentage(cumulativeWork, effectiveStart, dayStart);
-              
-              percentages.push({
-                x: startHourOfDay,
-                y: decreasedPercentage,
-                duration: 0,
-                startTime: start.format('HH:mm'),
-                endTime: start.format('HH:mm'),
-                date: referenceDate.format('YYYY-MM-DD'),
-                cumulative: cumulativeWork,
-                elapsed: effectiveStart.diff(dayStart, 'hours', true),
-                isGapPoint: true
-              });
-            }
+          if (lastEndTime !== null && effectiveStart.isAfter(lastEndTime)) {
+            const decreasedPercentage = calculatePercentage(cumulativeWork, effectiveStart, dayStart);
+            
+            percentages.push({
+              x: startHourOfDay,
+              y: decreasedPercentage,
+              duration: 0,
+              startTime: start.format('HH:mm'),
+              endTime: start.format('HH:mm'),
+              date: referenceDate.format('YYYY-MM-DD'),
+              cumulative: cumulativeWork,
+              elapsed: effectiveStart.diff(dayStart, 'hours', true),
+              isGapPoint: true
+            });
           }
 
-          // Add session end point
           cumulativeWork += duration;
           const hourOfDay = effectiveStop.hours() + (effectiveStop.minutes() / 60);
           const percentWorked = calculatePercentage(cumulativeWork, effectiveStop, dayStart);
@@ -108,51 +97,24 @@ fetch('/api/toggl')
         }
       });
 
+      // For today only, add current time point
       if (referenceDate.isSame(now, 'day')) {
-        const ongoingEntry = entries.find(entry => !entry.stop);
-        if (ongoingEntry) {
-          const start = moment(ongoingEntry.start).tz(timezone);
+        const currentHour = now.hours() + (now.minutes() / 60);
+        if (currentHour >= startHour && currentHour <= endHour) {
+          // Calculate current percentage
+          const currentPercentage = calculatePercentage(cumulativeWork, now, dayStart);
           
-          // Add decreased percentage point if there's a gap
-          const startHourOfDay = start.hours() + (start.minutes() / 60);
-          if (startHourOfDay >= startHour && startHourOfDay <= endHour) {
-            if (lastEndTime !== null && start.isAfter(lastEndTime)) {
-              const decreasedPercentage = calculatePercentage(cumulativeWork, start, dayStart);
-              
-              percentages.push({
-                x: startHourOfDay,
-                y: decreasedPercentage,
-                duration: 0,
-                startTime: start.format('HH:mm'),
-                endTime: start.format('HH:mm'),
-                date: referenceDate.format('YYYY-MM-DD'),
-                cumulative: cumulativeWork,
-                elapsed: start.diff(dayStart, 'hours', true),
-                isGapPoint: true
-              });
-            }
-          }
-
-          const effectiveStart = moment.max(start, dayStart);
-          const effectiveNow = moment.min(now, dayEnd);
-          const duration = effectiveNow.diff(effectiveStart, 'hours', true);
-          
-          if (duration > 0) {
-            cumulativeWork += duration;
-            const hourOfDay = effectiveNow.hours() + (effectiveNow.minutes() / 60);
-            const percentWorked = calculatePercentage(cumulativeWork, effectiveNow, dayStart);
-            
-            percentages.push({
-              x: hourOfDay,
-              y: percentWorked,
-              duration: duration,
-              startTime: start.format('HH:mm'),
-              endTime: 'ongoing',
-              date: referenceDate.format('YYYY-MM-DD'),
-              cumulative: cumulativeWork,
-              elapsed: effectiveNow.diff(dayStart, 'hours', true)
-            });
-          }
+          percentages.push({
+            x: currentHour,
+            y: currentPercentage,
+            duration: 0,
+            startTime: now.format('HH:mm'),
+            endTime: now.format('HH:mm'),
+            date: referenceDate.format('YYYY-MM-DD'),
+            cumulative: cumulativeWork,
+            elapsed: now.diff(dayStart, 'hours', true),
+            isCurrentPoint: true
+          });
         }
       }
 
@@ -166,6 +128,7 @@ fetch('/api/toggl')
     // Process historical data
     const historicalPoints = [];
     const historicalDays = {};
+    
     data.historical.forEach(entry => {
       const entryDate = moment(entry.start).tz(timezone);
       const dateKey = entryDate.format('YYYY-MM-DD');
@@ -199,10 +162,15 @@ fetch('/api/toggl')
             label: "Today's Work",
             data: todayPercentages,
             showLine: true,
-            borderColor: 'rgba(34, 197, 94, 0.9)',  // Changed to a softer green
-            backgroundColor: 'rgba(34, 197, 94, 0.9)',  // Matching point color
-            borderWidth: 4,  // Increased from 2 to 4
-            pointRadius: 3,
+            borderColor: 'rgba(34, 197, 94, 0.9)',
+            backgroundColor: 'rgba(34, 197, 94, 0.9)',
+            borderWidth: 4,
+            pointRadius: function(context) {
+              if (context.raw && context.raw.isCurrentPoint) {
+                return 5;
+              }
+              return 3;
+            },
             fill: false
           }
         ]
@@ -233,13 +201,16 @@ fetch('/api/toggl')
                 const point = context.raw;
                 const labels = [
                   `Date: ${point.date}`,
-                  `Time: ${point.startTime}${point.isInitialPoint ? ' (Start of day)' : point.isGapPoint ? ' (Gap)' : ` - ${point.endTime}`}`,
+                  `Time: ${point.startTime}${point.isInitialPoint ? ' (Start of day)' : 
+                                          point.isCurrentPoint ? ' (Current time)' :
+                                          point.isGapPoint ? ' (Gap)' : 
+                                          ` - ${point.endTime}`}`,
                   `Work / Elapsed: ${point.y.toFixed(1)}%`,
                   `Work Hours: ${point.cumulative.toFixed(2)}`,
                   `Elapsed Hours: ${point.elapsed.toFixed(2)}`
                 ];
                 
-                if (!point.isGapPoint && !point.isInitialPoint) {
+                if (!point.isGapPoint && !point.isInitialPoint && !point.isCurrentPoint) {
                   labels.splice(2, 0, `Session: ${(point.duration * 60).toFixed(0)} minutes`);
                 }
                 
