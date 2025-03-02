@@ -1,6 +1,32 @@
 fetch('/api/toggl')
-  .then(response => response.json())
+  .then(response => {
+    if (!response.ok) {
+      throw new Error(`Server responded with status: ${response.status}`);
+    }
+    return response.json();
+  })
   .then(data => {
+    // Add debugging to see exact structure of the data
+    console.log('Data received from API:', data);
+    console.log('Today entries:', data.today ? data.today.length : 'undefined');
+    console.log('Historical entries:', data.historical ? data.historical.length : 'undefined');
+    
+    // Sample of first entry from each array (if available)
+    if (data.today && data.today.length > 0) {
+      console.log('Sample today entry:', data.today[0]);
+    }
+    if (data.historical && data.historical.length > 0) {
+      console.log('Sample historical entry:', data.historical[0]);
+    }
+    
+    // Check for empty arrays or undefined
+    if (!data.today || data.today.length === 0) {
+      console.warn('No today entries available');
+    }
+    if (!data.historical || data.historical.length === 0) {
+      console.warn('No historical entries available');
+    }
+
     const timezone = 'America/Los_Angeles';
     const startHour = 6;
     const endHour = 22;
@@ -11,6 +37,14 @@ fetch('/api/toggl')
     }
     
     function processEntries(entries, referenceDate) {
+      // Check if entries is valid
+      if (!Array.isArray(entries)) {
+        console.error('Entries is not an array:', entries);
+        return [];
+      }
+      
+      console.log(`Processing ${entries.length} entries for ${referenceDate.format('YYYY-MM-DD')}`);
+      
       const dayStart = moment(referenceDate).tz(timezone).startOf('day').add(startHour, 'hours');
       const dayEnd = moment(referenceDate).tz(timezone).startOf('day').add(endHour, 'hours');
       
@@ -22,14 +56,43 @@ fetch('/api/toggl')
       let cumulativeWork = 0;
       const percentages = [];
 
-      const completedEntries = entries
-        .filter(entry => entry.stop)
+      // Ensure entries is an array and has required properties
+      const validEntries = entries.filter(entry => {
+        if (!entry || typeof entry !== 'object') {
+          console.warn('Invalid entry object:', entry);
+          return false;
+        }
+        if (!entry.start) {
+          console.warn('Entry missing start time:', entry);
+          return false;
+        }
+        return true;
+      });
+      
+      console.log(`Valid entries: ${validEntries.length}/${entries.length}`);
+
+      const completedEntries = validEntries
+        .filter(entry => {
+          if (!entry.stop) {
+            console.log('Filtered out entry with no stop time:', entry.id || 'unknown');
+            return false;
+          }
+          return true;
+        })
         .filter(entry => {
           const entryDate = moment(entry.start).tz(timezone);
-          return entryDate.isSame(referenceDate, 'day');
+          const isSameDay = entryDate.isSame(referenceDate, 'day');
+          if (!isSameDay) {
+            console.log('Filtered out entry not on same day:', entry.id || 'unknown', 
+                       'Entry date:', moment(entry.start).tz(timezone).format('YYYY-MM-DD'),
+                       'Reference date:', referenceDate.format('YYYY-MM-DD'));
+          }
+          return isSameDay;
         })
         .sort((a, b) => moment(a.start).valueOf() - moment(b.start).valueOf());
-
+      
+      console.log(`Completed entries after filtering: ${completedEntries.length}`);
+      
       // Find first entry of the day
       if (completedEntries.length > 0) {
         const firstStart = moment(completedEntries[0].start).tz(timezone);
@@ -118,32 +181,72 @@ fetch('/api/toggl')
         }
       }
 
+      console.log(`Generated ${percentages.length} percentage points`);
       return percentages;
     }
 
     // Process today's data
     const now = moment().tz(timezone);
+    console.log('Processing today data with reference date:', now.format('YYYY-MM-DD'));
     const todayPercentages = processEntries(data.today, now);
+    console.log(`Today percentages: ${todayPercentages.length} points generated`);
 
     // Process historical data
     const historicalPoints = [];
     const historicalDays = {};
     
-    data.historical.forEach(entry => {
-      const entryDate = moment(entry.start).tz(timezone);
-      const dateKey = entryDate.format('YYYY-MM-DD');
+    if (Array.isArray(data.historical)) {
+      data.historical.forEach(entry => {
+        if (!entry || !entry.start) {
+          console.warn('Skipping invalid historical entry:', entry);
+          return;
+        }
+        
+        const entryDate = moment(entry.start).tz(timezone);
+        const dateKey = entryDate.format('YYYY-MM-DD');
+        
+        if (!historicalDays[dateKey]) {
+          historicalDays[dateKey] = [];
+        }
+        historicalDays[dateKey].push(entry);
+      });
+
+      console.log(`Grouped historical data into ${Object.keys(historicalDays).length} days`);
+
+      Object.entries(historicalDays).forEach(([date, entries]) => {
+        console.log(`Processing ${entries.length} historical entries for ${date}`);
+        const dayData = processEntries(entries, moment(date).tz(timezone));
+        historicalPoints.push(...dayData);
+      });
+    } else {
+      console.error('Historical data is not an array:', data.historical);
+    }
+    
+    console.log(`Historical points: ${historicalPoints.length} total points generated`);
+
+    // Check if we have enough data for a chart
+    if (todayPercentages.length === 0 && historicalPoints.length === 0) {
+      console.error('No data points generated for chart. Chart will be empty.');
       
-      if (!historicalDays[dateKey]) {
-        historicalDays[dateKey] = [];
-      }
-      historicalDays[dateKey].push(entry);
-    });
+      // Create an error message element
+      const chartContainer = document.getElementById('myChart').parentNode;
+      const errorMsg = document.createElement('div');
+      errorMsg.className = 'error-message';
+      errorMsg.style.color = 'red';
+      errorMsg.style.padding = '20px';
+      errorMsg.style.textAlign = 'center';
+      errorMsg.innerHTML = '<p>Unable to generate chart: No data points available.</p>';
+      chartContainer.appendChild(errorMsg);
+      
+      // Return early to avoid errors in Chart.js
+      return;
+    }
 
-    Object.entries(historicalDays).forEach(([date, entries]) => {
-      const dayData = processEntries(entries, moment(date).tz(timezone));
-      historicalPoints.push(...dayData);
-    });
-
+    // Log chart data
+    console.log('Chart data ready:');
+    console.log('- Today points:', todayPercentages.length);
+    console.log('- Historical points:', historicalPoints.length);
+    
     // Chart.js Integration
     const ctx = document.getElementById('myChart').getContext('2d');
     new Chart(ctx, {
@@ -199,18 +302,23 @@ fetch('/api/toggl')
             callbacks: {
               label: function(context) {
                 const point = context.raw;
+                if (!point) {
+                  console.warn('Tooltip received undefined data point');
+                  return ['Invalid data point'];
+                }
+                
                 const labels = [
-                  `Date: ${point.date}`,
-                  `Time: ${point.startTime}${point.isInitialPoint ? ' (Start of day)' : 
+                  `Date: ${point.date || 'Unknown'}`,
+                  `Time: ${point.startTime || 'Unknown'}${point.isInitialPoint ? ' (Start of day)' : 
                                           point.isCurrentPoint ? ' (Current time)' :
                                           point.isGapPoint ? ' (Gap)' : 
-                                          ` - ${point.endTime}`}`,
-                  `Work / Elapsed: ${point.y.toFixed(1)}%`,
-                  `Work Hours: ${point.cumulative.toFixed(2)}`,
-                  `Elapsed Hours: ${point.elapsed.toFixed(2)}`
+                                          ` - ${point.endTime || 'Unknown'}`}`,
+                  `Work / Elapsed: ${point.y ? point.y.toFixed(1) : 'Unknown'}%`,
+                  `Work Hours: ${point.cumulative ? point.cumulative.toFixed(2) : 'Unknown'}`,
+                  `Elapsed Hours: ${point.elapsed ? point.elapsed.toFixed(2) : 'Unknown'}`
                 ];
                 
-                if (!point.isGapPoint && !point.isInitialPoint && !point.isCurrentPoint) {
+                if (!point.isGapPoint && !point.isInitialPoint && !point.isCurrentPoint && point.duration) {
                   labels.splice(2, 0, `Session: ${(point.duration * 60).toFixed(0)} minutes`);
                 }
                 
@@ -222,4 +330,19 @@ fetch('/api/toggl')
       }
     });
   })
-  .catch(error => console.error('Error fetching data for chart:', error));
+  .catch(error => {
+    console.error('Error fetching data for chart:', error);
+    
+    // Display user-friendly error message
+    const chartContainer = document.getElementById('myChart').parentNode;
+    const errorMsg = document.createElement('div');
+    errorMsg.className = 'error-message';
+    errorMsg.style.color = 'red';
+    errorMsg.style.padding = '20px';
+    errorMsg.style.textAlign = 'center';
+    errorMsg.innerHTML = `
+      <p>Unable to load chart data. Please try again later.</p>
+      <p>Error details: ${error.message}</p>
+    `;
+    chartContainer.appendChild(errorMsg);
+  });
